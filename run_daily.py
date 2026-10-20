@@ -2,24 +2,36 @@
 """EPAM Outreach — Daily orchestrator.
 
 Usage:
-    python run_daily.py            # full run
-    python run_daily.py --dry-run  # print what would happen, no writes
+    python run_daily.py              # full run (writes Docs + Sheet; no prospect email)
+    python run_daily.py --dry-run    # print what would happen, no writes
+    python run_daily.py --no-reminder  # skip internal digest to REMINDER_TO
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+env_file = PROJECT_ROOT / ".env"
+if env_file.exists():
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
 
 from agents.selector import select_prospects, read_all_rows
 from agents.researcher import research_prospect
 from agents.writer import generate_touch
 from agents.publisher import publish
 from agents.reminder import get_due_today, send_reminder
+from config import settings
 
 log = logging.getLogger("outreach")
 
@@ -29,9 +41,13 @@ def setup_logging():
     logging.basicConfig(level=logging.INFO, format=fmt)
 
 
-def run(dry_run: bool = False):
+def run(dry_run: bool = False, no_reminder: bool = False):
     setup_logging()
-    log.info("=== EPAM Outreach daily run (dry_run=%s) ===", dry_run)
+    log.info(
+        "=== EPAM Outreach daily run (dry_run=%s, no_reminder=%s) ===",
+        dry_run,
+        no_reminder,
+    )
 
     all_rows = read_all_rows()
     prospects = select_prospects(all_rows)
@@ -76,14 +92,16 @@ def run(dry_run: bool = False):
             log.exception("  FAILED for %s at %s", name, company)
             results.append({"prospect": name, "company": company, "touch": touch_num, "status": "error"})
 
-    if not dry_run:
-        log.info("--- Sending reminder ---")
+    if not dry_run and settings.SEND_REMINDER_EMAIL and not no_reminder:
+        log.info("--- Sending reminder digest ---")
         try:
             refreshed_rows = read_all_rows()
             due = get_due_today(refreshed_rows)
             send_reminder(due)
         except Exception:
             log.exception("Failed to send reminder email")
+    elif not dry_run and (not settings.SEND_REMINDER_EMAIL or no_reminder):
+        log.info("--- Reminder email skipped (SEND_REMINDER_EMAIL or --no-reminder) ---")
 
     succeeded = sum(1 for r in results if r["status"] == "ok")
     failed = sum(1 for r in results if r["status"] == "error")
@@ -98,8 +116,13 @@ def run(dry_run: bool = False):
 def main():
     parser = argparse.ArgumentParser(description="EPAM Outreach daily orchestrator")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without executing")
+    parser.add_argument(
+        "--no-reminder",
+        action="store_true",
+        help="Do not send the daily digest email to REMINDER_TO (prospect emails are never sent by this app)",
+    )
     args = parser.parse_args()
-    run(dry_run=args.dry_run)
+    run(dry_run=args.dry_run, no_reminder=args.no_reminder)
 
 
 if __name__ == "__main__":

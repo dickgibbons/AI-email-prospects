@@ -46,11 +46,34 @@ pip install -r requirements.txt
 6. Share your Google Sheet with the service account email (Editor access).
 7. Share the **EPAM** root folder in Drive with the service account email (Editor access). This gives it access to the entire folder tree.
 
+### 3b. Google OAuth (required for creating Google Docs)
+
+**Why:** Files created by a **service account** are owned by that account. Service accounts have **no personal Google Drive storage**, so creating a **Google Doc** often returns `403 storageQuotaExceeded` even when your own account shows plenty of space (e.g. 5 TB). Reading/updating Sheets and creating **folders** may still work; **Docs** usually need your user to own the file.
+
+**Fix — one-time OAuth (use your Google login for Sheets + Drive + Docs):**
+
+1. In Google Cloud Console: **APIs & Services** > **Credentials** > **Create Credentials** > **OAuth client ID** > Application type: **Desktop app** > Create > **Download JSON**.
+2. Save the file as `config/oauth_client_secret.json` in this project.
+3. **OAuth consent screen:** add your Gmail as a **Test user** if the app is in *Testing* mode.
+4. From the project root, with venv active:
+
+   ```bash
+   python tools/setup_oauth.py
+   ```
+
+   A browser opens — sign in with the **same Google account** that owns the Sheet and the **EPAM** Drive folder.
+
+5. This creates `config/oauth_token.json`. The app uses it automatically when present (instead of the service account for API calls).
+
+You can keep the service account for sharing the Sheet if you like, or rely only on OAuth once the token exists — the code prefers **OAuth token file** over the service account when `config/oauth_token.json` exists.
+
+**Do not commit** `oauth_token.json` or `oauth_client_secret.json` (they are in `.gitignore`).
+
 ---
 
 ## 4. Google Sheet
 
-- Sheet name: **Contacts** (or set `SHEET_NAME` env var).
+- Sheet name: **Contacts** (or set `SHEET_NAME` env var). If your tab is still the default **Sheet1**, add `SHEET_NAME=Sheet1` to `.env` or rename the tab to **Contacts** in Google Sheets.
 - Columns (row 1 headers, exact spelling):
 
   `Name | Title | Company | LinkedIn URL | Target vs Existing | Intro Call Topic | EPAM Footprint | Internal Contact | Notes | Status | Max Touches | Last Touch Sent | Next Touch Due | Doc Link | Last Processed`
@@ -89,6 +112,10 @@ Copy the **EPAM** folder ID from Drive (right-click > Get link > extract the ID 
 
 Set these in your shell, `.env` file, or crontab. All are required unless noted.
 
+**Prospect outreach:** This app **never** sends email to prospects. It only writes drafts to Google Docs and updates the Sheet — you copy from the Doc and send manually.
+
+**Reminder digest:** By default, after each run it sends one internal email (Gmail) to `REMINDER_TO` listing follow-ups due today. To turn that off, add `SEND_REMINDER_EMAIL=false` to `.env` or run `python run_daily.py --no-reminder`.
+
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 export SPREADSHEET_ID="1abc..."
@@ -101,6 +128,7 @@ export GMAIL_APP_PASSWORD="abcd efgh ijkl mnop"
 # export SHEET_NAME="Contacts"
 # export GMAIL_ADDRESS="dickgibbons@gmail.com"
 # export REMINDER_TO="richard_gibbons@epam.com"
+# export SEND_REMINDER_EMAIL=false   # skip internal digest email entirely
 ```
 
 ---

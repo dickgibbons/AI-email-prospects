@@ -7,19 +7,18 @@ import logging
 import re
 
 import anthropic
-from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 from config import settings, prompts
+from config.google_auth import get_credentials
 
 log = logging.getLogger(__name__)
 
+_DRIVE_KW = {"supportsAllDrives": True, "includeItemsFromAllDrives": True}
+
 
 def _get_drive_service():
-    creds = Credentials.from_service_account_file(
-        settings.SERVICE_ACCOUNT_FILE, scopes=settings.SCOPES
-    )
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
+    return build("drive", "v3", credentials=get_credentials(), cache_discovery=False)
 
 
 def _find_child_folder(drive, parent_id: str, name: str) -> str | None:
@@ -29,7 +28,11 @@ def _find_child_folder(drive, parent_id: str, name: str) -> str | None:
         f"and mimeType = 'application/vnd.google-apps.folder' "
         f"and trashed = false"
     )
-    resp = drive.files().list(q=q, fields="files(id, name)", pageSize=1).execute()
+    resp = (
+        drive.files()
+        .list(q=q, fields="files(id, name)", pageSize=1, **_DRIVE_KW)
+        .execute()
+    )
     files = resp.get("files", [])
     return files[0]["id"] if files else None
 
@@ -69,7 +72,11 @@ def _read_company_background(drive, company_folder_id: str) -> str:
         f"and name contains 'background' "
         f"and trashed = false"
     )
-    resp = drive.files().list(q=q, fields="files(id, name)", pageSize=1).execute()
+    resp = (
+        drive.files()
+        .list(q=q, fields="files(id, name)", pageSize=1, **_DRIVE_KW)
+        .execute()
+    )
     files = resp.get("files", [])
     if not files:
         return ""
@@ -77,7 +84,7 @@ def _read_company_background(drive, company_folder_id: str) -> str:
     doc_id = files[0]["id"]
     content = (
         drive.files()
-        .export(fileId=doc_id, mimeType="text/plain")
+        .export(fileId=doc_id, mimeType="text/plain", supportsAllDrives=True)
         .execute()
     )
     if isinstance(content, bytes):

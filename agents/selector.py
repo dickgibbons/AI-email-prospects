@@ -6,10 +6,10 @@ import logging
 from datetime import date
 from typing import Any
 
-from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 from config import settings
+from config.google_auth import get_credentials
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ HEADER_MAP = {
     "Title": "title",
     "Company": "company",
     "LinkedIn URL": "linkedInUrl",
+    "Linkedin URL": "linkedInUrl",
     "Target vs Existing": "targetVsExisting",
     "Intro Call Topic": "introCallTopic",
     "EPAM Footprint": "epamFootprint",
@@ -33,10 +34,7 @@ HEADER_MAP = {
 
 
 def _get_sheets_service():
-    creds = Credentials.from_service_account_file(
-        settings.SERVICE_ACCOUNT_FILE, scopes=settings.SCOPES
-    )
-    return build("sheets", "v4", credentials=creds, cache_discovery=False)
+    return build("sheets", "v4", credentials=get_credentials(), cache_discovery=False)
 
 
 def _max_touches_for_role(title: str) -> int:
@@ -61,7 +59,10 @@ def read_all_rows() -> list[dict]:
     result = (
         svc.spreadsheets()
         .values()
-        .get(spreadsheetId=settings.SPREADSHEET_ID, range=f"{settings.SHEET_NAME}")
+        .get(
+            spreadsheetId=settings.SPREADSHEET_ID,
+            range=f"{settings.SHEET_NAME}!A:ZZ",
+        )
         .execute()
     )
     rows = result.get("values", [])

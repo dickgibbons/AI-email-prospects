@@ -5,20 +5,21 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
-from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 from config import settings
+from config.google_auth import get_credentials
 
 log = logging.getLogger(__name__)
 
 _folder_cache: dict[str, str] = {}
 
+# Shared drives (Team Drives) require these flags; harmless for My Drive.
+_DRIVE_KW = {"supportsAllDrives": True, "includeItemsFromAllDrives": True}
+
 
 def _get_services():
-    creds = Credentials.from_service_account_file(
-        settings.SERVICE_ACCOUNT_FILE, scopes=settings.SCOPES
-    )
+    creds = get_credentials()
     drive = build("drive", "v3", credentials=creds, cache_discovery=False)
     sheets = build("sheets", "v4", credentials=creds, cache_discovery=False)
     docs = build("docs", "v1", credentials=creds, cache_discovery=False)
@@ -32,7 +33,11 @@ def _find_child(drive, parent_id: str, name: str, mime: str = "application/vnd.g
         f"and mimeType = '{mime}' "
         f"and trashed = false"
     )
-    resp = drive.files().list(q=q, fields="files(id)", pageSize=1).execute()
+    resp = (
+        drive.files()
+        .list(q=q, fields="files(id)", pageSize=1, **_DRIVE_KW)
+        .execute()
+    )
     files = resp.get("files", [])
     return files[0]["id"] if files else None
 
@@ -43,7 +48,9 @@ def _create_folder(drive, parent_id: str, name: str) -> str:
         "mimeType": "application/vnd.google-apps.folder",
         "parents": [parent_id],
     }
-    folder = drive.files().create(body=metadata, fields="id").execute()
+    folder = drive.files().create(
+        body=metadata, fields="id", supportsAllDrives=True
+    ).execute()
     return folder["id"]
 
 
@@ -71,6 +78,11 @@ def _resolve_prospect_folder(drive, prospect: dict) -> str:
 
     cfg = settings.DRIVE_PATH_TEMPLATE
     root_id = settings.DRIVE_ROOT_FOLDER_ID
+    if not root_id:
+        raise ValueError(
+            "DRIVE_ROOT_FOLDER_ID is not set. Set it in .env to the Google Drive "
+            "folder ID for your EPAM root folder (share that folder with the service account)."
+        )
 
     outreach_id = _find_or_create(drive, root_id, cfg["outreach_folder"])
     branch_id = _find_or_create(drive, outreach_id, branch_name)
@@ -89,7 +101,9 @@ def _create_google_doc(drive, docs_svc, folder_id: str, title: str, subject: str
         "mimeType": "application/vnd.google-apps.document",
         "parents": [folder_id],
     }
-    doc_file = drive.files().create(body=file_metadata, fields="id, webViewLink").execute()
+    doc_file = drive.files().create(
+        body=file_metadata, fields="id, webViewLink", supportsAllDrives=True
+    ).execute()
     doc_id = doc_file["id"]
     web_link = doc_file.get("webViewLink", "")
 
